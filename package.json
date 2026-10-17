@@ -1,0 +1,19 @@
+{
+"name": "raza-pair-deploy",
+"version": "1.0.0",
+"private": true,
+"type": "module",
+"description": "RAZA MD WhatsApp pairing and Heroku deployment portal",
+"engines": {
+"node": ">=20.6.0"
+},
+"scripts": {
+"start": "node index.js"
+},
+"dependencies": {
+"@hapi/boom": "^10.0.1",
+"@whiskeysockets/baileys": "7.0.0-rc14",
+"express": "^5.1.0",
+"pino": "^9.7.0"
+}
+}
