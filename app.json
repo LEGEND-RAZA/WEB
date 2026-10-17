@@ -1,19 +1,64 @@
 {
-  "name": "RAZA MD Pair and Deploy",
-  "description": "Pairing site and one-tap Heroku deployer for RAZA MD.",
-  "stack": "heroku-24",
-  "buildpacks": [{ "url": "heroku/nodejs" }],
-  "env": {
-    "HEROKU_API_KEY": { "description": "Heroku API key that owns the bot apps.", "required": true },
-    "PAIR_SERVER_URL": { "description": "This site's public URL. Each bot fetches its session from it.", "required": true },
-    "BOT_REPO": { "description": "GitHub repo of the bot.", "value": "LEGEND-RAZA/RAZA-MD", "required": false },
-    "BOT_BRANCH": { "description": "Branch to build.", "value": "main", "required": false },
-    "DYNO_SIZE": { "description": "Worker dyno size.", "value": "basic", "required": false },
-    "PREFIX": { "description": "Command prefix passed to each bot.", "value": ".", "required": false },
-    "DB_HOST": { "description": "Database host passed to each bot.", "required": false },
-    "DB_PORT": { "description": "Database port passed to each bot.", "required": false },
-    "DB_NAME": { "description": "Database name passed to each bot.", "required": false },
-    "DB_USER": { "description": "Database user passed to each bot.", "required": false },
-    "DB_PASSWORD": { "description": "Database password passed to each bot.", "required": false }
-  }
+"name": "RAZA MD Pair and Deploy",
+"description": "Pairing site and one-tap Heroku deployer for RAZA MD.",
+"stack": "heroku-24",
+"buildpacks": [
+{
+"url": "heroku/nodejs"
+}
+],
+"env": {
+"HEROKU_API_KEY": {
+"description": "Heroku API key that owns the bot apps.",
+"required": true
+},
+"PAIR_SERVER_URL": {
+"description": "This site's public URL. Each bot fetches its session from it.",
+"required": true
+},
+"BOT_REPO": {
+"description": "GitHub repo of the bot.",
+"value": "LEGEND-RAZA/RAZA-MD",
+"required": false
+},
+"BOT_BRANCH": {
+"description": "Branch to build.",
+"value": "main",
+"required": false
+},
+"DYNO_SIZE": {
+"description": "Worker dyno size.",
+"value": "basic",
+"required": false
+},
+"PREFIX": {
+"description": "Command prefix passed to each bot.",
+"value": ".",
+"required": false
+},
+"DB_HOST": {
+"description": "Aiven MySQL database host.",
+"value": "mysql-raza123-innoxcentraza-9801.c.aivencloud.com",
+"required": true
+},
+"DB_PORT": {
+"description": "Aiven MySQL database port.",
+"value": "19244",
+"required": true
+},
+"DB_NAME": {
+"description": "Aiven MySQL database name.",
+"value": "defaultdb",
+"required": true
+},
+"DB_USER": {
+"description": "Aiven MySQL database user.",
+"value": "avnadmin",
+"required": true
+},
+"DB_PASSWORD": {
+"description": "Aiven MySQL database password. Configure the rotated password securely.",
+"required": true
+}
+}
 }
