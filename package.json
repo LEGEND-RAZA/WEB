@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "RAZA MD WhatsApp pairing and SQL-backed Heroku deployment portal",
+  "description": "RAZA MD WhatsApp pairing and Heroku deployment portal with encrypted SQL session storage",
   "engines": {
     "node": ">=20.6.0"
   },
