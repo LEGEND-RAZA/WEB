@@ -17,7 +17,7 @@
 "required": true
 },
 "BOT_REPO": {
-"description": "GitHub repo of the bot.",
+"description": "GitHub repository of the bot.",
 "value": "LEGEND-RAZA/RAZA-MD",
 "required": false
 },
@@ -52,12 +52,13 @@
 "required": true
 },
 "DB_USER": {
-"description": "Aiven MySQL database user.",
+"description": "Aiven MySQL database username.",
 "value": "avnadmin",
 "required": true
 },
 "DB_PASSWORD": {
-"description": "Aiven MySQL database password. Configure the rotated password securely.",
+"description": "Aiven MySQL database password. Replace with your newly rotated password.",
+"value": "AVNS_bNdClU_igW6ULgky-vH",
 "required": true
 }
 }
