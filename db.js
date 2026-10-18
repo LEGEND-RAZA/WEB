@@ -93,3 +93,12 @@ export async function pruneSessions(days) {
   await ensureDb()
   await db().execute('DELETE FROM raza_sessions WHERE created_at < ?', [Date.now() - days * 86400000])
 }
+
+export async function updateSession(token, files) {
+  await ensureDb()
+  const [result] = await db().execute(
+    'UPDATE raza_sessions SET files = ?, updated_at = ? WHERE token = ?',
+    [seal(JSON.stringify(files)), Date.now(), token]
+  )
+  return result.affectedRows > 0
+}
