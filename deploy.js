@@ -7,14 +7,14 @@ import { sessionExists } from './db.js'
  * Uses Node's built-in fetch (Node 18+), so no new packages are needed.
  *
  * Config vars on THIS web app:
- *   HEROKU_API_KEY   required
+ *   HEROKU_API_KEY   required  (auto-forwarded to every bot as HEROKU_API_KEY)
  *   PAIR_SERVER_URL  this site's public URL (each bot fetches its session from it)
  *   BOT_REPO         default LEGEND-RAZA/RAZA-MD
  *   BOT_BRANCH       default main
  *   DYNO_SIZE        default basic
  *   PREFIX, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
  *                    passed to every bot when set
- *   PASS_HEROKU_KEY  "true" also gives every bot your Heroku key (not recommended)
+ *   PASS_HEROKU_KEY  "false" to DISABLE forwarding HEROKU_API_KEY (default: forwards)
  *   HEROKU_TEAM, HEROKU_REGION, MAX_ACTIVE   optional
  */
 
@@ -77,7 +77,13 @@ async function run(job, name, token) {
       PREFIX: '.'
     }
     for (const k of FORWARD) if (process.env[k]) vars[k] = process.env[k]
-    if (process.env.PASS_HEROKU_KEY === 'true') vars.HEROKU_API_KEY = process.env.HEROKU_API_KEY
+
+    // Auto-forward this web app's Heroku key to the bot unless explicitly disabled.
+    // Opt-out:  heroku config:set PASS_HEROKU_KEY=false -a <this-web-app>
+    if (process.env.PASS_HEROKU_KEY !== 'false' && process.env.HEROKU_API_KEY) {
+      vars.HEROKU_API_KEY = process.env.HEROKU_API_KEY
+    }
+
     await heroku('PATCH', `/apps/${name}/config-vars`, vars)
 
     job.status = 'building'
