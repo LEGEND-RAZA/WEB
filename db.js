@@ -41,10 +41,22 @@ function db() {
       ssl: DB_SSL === 'false' ? undefined : { rejectUnauthorized: false },
       connectionLimit: 5,
       waitForConnections: true,
-      connectTimeout: 15000
+      connectTimeout: 15000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000
     })
   }
   return pool
+}
+
+// One retry if MySQL dropped an idle connection.
+async function exec(sql, params) {
+  try {
+    return await db().execute(sql, params)
+  } catch (e) {
+    if (['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'EPIPE'].includes(e?.code)) return db().execute(sql, params)
+    throw e
+  }
 }
 
 async function initDb() {
@@ -68,7 +80,7 @@ export function ensureDb() {
 export async function putSession({ token, number, version, files }) {
   await ensureDb()
   const now = Date.now()
-  await db().execute(
+  await exec(
     `INSERT INTO raza_sessions (token, number, version, files, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE version = VALUES(version), files = VALUES(files), updated_at = VALUES(updated_at)`,
@@ -78,25 +90,25 @@ export async function putSession({ token, number, version, files }) {
 
 export async function getSession(token) {
   await ensureDb()
-  const [rows] = await db().execute('SELECT version, files FROM raza_sessions WHERE token = ? LIMIT 1', [token])
+  const [rows] = await exec('SELECT version, files FROM raza_sessions WHERE token = ? LIMIT 1', [token])
   if (!rows.length) return null
   return { version: rows[0].version, files: JSON.parse(unseal(rows[0].files)) }
 }
 
 export async function sessionExists(token) {
   await ensureDb()
-  const [rows] = await db().execute('SELECT 1 FROM raza_sessions WHERE token = ? LIMIT 1', [token])
+  const [rows] = await exec('SELECT 1 FROM raza_sessions WHERE token = ? LIMIT 1', [token])
   return rows.length > 0
 }
 
 export async function pruneSessions(days) {
   await ensureDb()
-  await db().execute('DELETE FROM raza_sessions WHERE created_at < ?', [Date.now() - days * 86400000])
+  await exec('DELETE FROM raza_sessions WHERE created_at < ?', [Date.now() - days * 86400000])
 }
 
 export async function updateSession(token, files) {
   await ensureDb()
-  const [result] = await db().execute(
+  const [result] = await exec(
     'UPDATE raza_sessions SET files = ?, updated_at = ? WHERE token = ?',
     [seal(JSON.stringify(files)), Date.now(), token]
   )
