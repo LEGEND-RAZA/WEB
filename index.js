@@ -126,22 +126,14 @@ async function connectJob(job) {
         await putSession({ token, number: job.number, ...(await snapshot(job.dir)) })
         job.token = token
 
-        // 2. Send it to the user's own chat.
+        // 2. Send it to the user's own chat (single message).
         const jid = `${job.number}@s.whatsapp.net`
         try {
-          await sock.sendMessage(jid, { text: '✓ ᴡʜᴀᴛsᴀᴘᴘ sᴄᴀɴɴᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ' })
-          await delay(500)
           await sock.sendMessage(jid, { text: token })
-          await delay(500)
-          await sock.sendMessage(jid, {
-            document: Buffer.from(token, 'utf8'),
-            mimetype: 'text/plain',
-            fileName: 'RAZA-SESSION.txt'
-          })
           job.sent = true
           console.log(`[SESSION] sent to ...${job.number.slice(-4)}`)
         } catch (e) {
-          job.sendError = e?.message || 'Could not send session messages'
+          job.sendError = e?.message || 'Could not send session message'
           console.error('[SEND ERROR]', e?.message || e)
         }
 
