@@ -24,6 +24,11 @@ const jobs = new Map()
 const used = new Map()
 const hits = new Map()
 const delay = ms => new Promise(r => setTimeout(r, ms))
+const safe = fn => (req, res) =>
+  Promise.resolve(fn(req, res)).catch(e => {
+    console.error('[DEPLOY]', e?.message || e)
+    if (!res.headersSent) res.status(500).json({ success: false, error: 'Server error. Try again.' })
+  })
 
 async function heroku(method, route, body) {
   const res = await fetch(API + route, {
@@ -113,7 +118,7 @@ async function run(job, name, token) {
 export function mountDeploy(app) {
   app.set('trust proxy', 1)
 
-  app.post('/api/deploy', async (req, res) => {
+  app.post('/api/deploy', safe(async (req, res) => {
     const fail = (code, error) => res.status(code).json({ success: false, error })
 
     if (!process.env.HEROKU_API_KEY) return fail(503, 'Deployment is not configured yet.')
@@ -144,7 +149,7 @@ export function mountDeploy(app) {
     run(job, name, token)
 
     res.json({ success: true, id: job.id })
-  })
+  }))
 
   app.get('/api/deploy/:id', (req, res) => {
     const job = jobs.get(req.params.id)
