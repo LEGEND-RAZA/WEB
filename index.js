@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { makeWASocket, Browsers, DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys'
 import { Boom } from '@hapi/boom'
-import { ensureDb, putSession, getSession, pruneSessions } from './db.js'
+import { ensureDb, putSession, getSession, updateSession, pruneSessions } from './db.js'
 import { mountDeploy } from './deploy.js'
 
 const app = express()
@@ -17,7 +17,11 @@ const jobs = new Map()
 const hits = new Map()
 
 app.set('trust proxy', 1)
-app.use(express.json({ limit: '2mb' }))
+const jsonSmall = express.json({ limit: '100kb' })
+const jsonBig = express.json({ limit: '25mb' })
+app.use((req, res, next) =>
+  (req.method === 'PUT' && req.path.startsWith('/api/session/') ? jsonBig : jsonSmall)(req, res, next)
+)
 app.use(express.static(path.join(ROOT, 'public')))
 
 await fs.mkdir(SESSIONS, { recursive: true })
@@ -279,6 +283,39 @@ app.get('/api/session/:token', async (req, res) => {
   } catch (e) {
     console.error('[SESSION API]', e?.message || e)
     res.status(500).json({ success: false, error: 'Could not retrieve session' })
+  }
+})
+
+// The bot uploads its latest keys here so a Heroku restart resumes from fresh state.
+app.put('/api/session/:token', async (req, res) => {
+  const token = String(req.params.token || '').trim()
+  if (!/^RAZA_[A-Za-z0-9_-]{10,100}$/.test(token)) {
+    return res.status(400).json({ success: false, error: 'Invalid session token' })
+  }
+
+  const files = req.body?.files
+  const names = files && typeof files === 'object' ? Object.keys(files) : []
+  const valid =
+    names.length > 0 &&
+    names.length <= 20000 &&
+    names.includes('creds.json') &&
+    names.every(n => /^[A-Za-z0-9._-]{1,200}$/.test(n) && typeof files[n] === 'string')
+
+  let paired = false
+  try {
+    paired = Boolean(JSON.parse(Buffer.from(files['creds.json'], 'base64').toString('utf8'))?.me?.id)
+  } catch {}
+
+  if (!valid || !paired) return res.status(400).json({ success: false, error: 'Invalid session files' })
+
+  try {
+    if (!(await updateSession(token, files))) {
+      return res.status(404).json({ success: false, error: 'Session not found' })
+    }
+    res.json({ success: true })
+  } catch (e) {
+    console.error('[SESSION PUT]', e?.message || e)
+    res.status(500).json({ success: false, error: 'Could not save session' })
   }
 })
 
