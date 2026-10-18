@@ -8,6 +8,10 @@ import { Boom } from '@hapi/boom'
 import { ensureDb, putSession, getSession, updateSession, pruneSessions } from './db.js'
 import { mountDeploy } from './deploy.js'
 
+// Never let a stray WhatsApp-library error take the whole site down.
+process.on('uncaughtException', e => console.error('[PROCESS] Uncaught exception:', e?.stack || e?.message || e))
+process.on('unhandledRejection', e => console.error('[PROCESS] Unhandled rejection:', e?.stack || e?.message || e))
+
 const app = express()
 const PORT = Number(process.env.PORT) || 3000
 const ROOT = process.cwd()
@@ -39,6 +43,8 @@ async function cleanupJob(job) {
     try { job.sock.ws?.close() } catch {}
     try { job.sock.end(undefined) } catch {}
   }
+  // Give in-flight key writes a moment to finish before the folder disappears.
+  await delay(2000)
   await fs.rm(job.dir, { recursive: true, force: true }).catch(() => {})
 }
 
