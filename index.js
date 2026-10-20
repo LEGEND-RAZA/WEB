@@ -63,7 +63,7 @@ async function requestPairingCode(job) {
   if (job.state?.creds?.registered) return
   job.codeRequesting = true
   try {
-    await delay(2000)
+    await delay(3000)
     if (job.cleaned || job.code) return
     const raw = await job.sock.requestPairingCode(job.number)
     if (!raw) throw new Error('WhatsApp returned an empty pairing code')
@@ -73,7 +73,7 @@ async function requestPairingCode(job) {
     console.log(`[PAIR] code issued for ...${job.number.slice(-4)}`)
   } catch (e) {
     job.code = ''
-    job.status = 'connecting'
+    job.status = 'error'
     job.error = e?.message || 'Pairing code request failed'
     console.error(`[PAIR ERROR] ...${job.number.slice(-4)}:`, e?.message || e)
   } finally {
@@ -197,6 +197,7 @@ app.post('/api/pair', async (req, res) => {
       return res.status(503).json({ success: false, error: 'Session storage is unavailable. Try again shortly.' })
     }
 
+    // Per-IP rate limit
     const now = Date.now()
     const list = (hits.get(req.ip) || []).filter(t => now - t < 10 * 60 * 1000)
     list.push(now)
@@ -205,11 +206,24 @@ app.post('/api/pair', async (req, res) => {
       return res.status(429).json({ success: false, error: 'Too many attempts. Try again in a few minutes.' })
     }
 
-    const running = [...jobs.values()].filter(j => !['ready', 'error'].includes(j.status))
-    const existing = running.find(j => j.number === number)
-    if (existing) {
-      return res.json({ success: true, id: existing.id, code: existing.code, status: existing.status })
+    // Reuse only if the SAME click fired two requests within 2 seconds (double-tap debounce)
+    const veryRecent = [...jobs.values()].find(j =>
+      j.number === number && Date.now() - j.createdAt < 2000
+    )
+    if (veryRecent) {
+      return res.json({ success: true, id: veryRecent.id, code: veryRecent.code, status: veryRecent.status })
     }
+
+    // Kill any previous job for this number so a fresh pairing code is always issued
+    for (const [id, j] of [...jobs.entries()]) {
+      if (j.number === number) {
+        cleanupJob(j).catch(() => {})
+        jobs.delete(id)
+      }
+    }
+
+    // Server capacity guard
+    const running = [...jobs.values()].filter(j => !['ready', 'error'].includes(j.status))
     if (running.length >= 20) {
       return res.status(429).json({ success: false, error: 'The server is busy. Try again in a minute.' })
     }
