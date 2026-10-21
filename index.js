@@ -306,24 +306,74 @@ app.put('/api/session/:token', async (req, res) => {
   }
 
   const files = req.body?.files
-  const names = files && typeof files === 'object' ? Object.keys(files) : []
-  const valid =
-    names.length > 0 &&
-    names.length <= 20000 &&
-    names.includes('creds.json') &&
-    names.every(n => /^[A-Za-z0-9._-]{1,200}$/.test(n) && typeof files[n] === 'string')
+  const names = files && typeof files === 'object' && !Array.isArray(files)
+    ? Object.keys(files)
+    : []
 
+  if (!names.length) {
+    return res.status(400).json({ success: false, error: 'No session files received' })
+  }
+  if (names.length > 20000) {
+    return res.status(400).json({ success: false, error: 'Too many session files' })
+  }
+  if (!names.includes('creds.json')) {
+    return res.status(400).json({ success: false, error: 'creds.json missing from payload' })
+  }
+
+  /*
+   * Filename validation.
+   *
+   * Baileys 7.x writes group sender-key files with '@' in the name, e.g.
+   *   sender-key-120363429299945923@g.us--923201822076@s.whatsapp.net--ABC123.json
+   *   sender-key-memory-120363429299945923@g.us.json
+   * The previous regex omitted '@', so EVERY sync failed with 400 the moment
+   * the session contained a single group key.
+   *
+   * Allowed characters: A-Z a-z 0-9 . _ @ -
+   * Plus explicit path-traversal guards (no '..', '/', '\', leading '.').
+   */
+  const NAME_RE = /^[A-Za-z0-9._@-]{1,200}$/
+
+  const badName = names.find(n =>
+    typeof n !== 'string' ||
+    !NAME_RE.test(n) ||
+    n.includes('..') ||
+    n.includes('/') ||
+    n.includes('\\') ||
+    n.startsWith('.') ||
+    typeof files[n] !== 'string' ||
+    files[n].length === 0
+  )
+
+  if (badName !== undefined) {
+    console.error('[SESSION PUT] rejected — invalid filename:', JSON.stringify(badName))
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid filename in session payload'
+    })
+  }
+
+  // creds.json must decode to JSON with a real me.id — proves the session is paired.
   let paired = false
   try {
-    paired = Boolean(JSON.parse(Buffer.from(files['creds.json'], 'base64').toString('utf8'))?.me?.id)
-  } catch {}
+    const decoded = Buffer.from(files['creds.json'], 'base64').toString('utf8')
+    paired = Boolean(JSON.parse(decoded)?.me?.id)
+  } catch (e) {
+    console.error('[SESSION PUT] creds.json decode failed:', e?.message || e)
+  }
 
-  if (!valid || !paired) return res.status(400).json({ success: false, error: 'Invalid session files' })
+  if (!paired) {
+    return res.status(400).json({
+      success: false,
+      error: 'creds.json is not a valid paired session'
+    })
+  }
 
   try {
     if (!(await updateSession(token, files))) {
       return res.status(404).json({ success: false, error: 'Session not found' })
     }
+    console.log(`[SESSION PUT] synced ${names.length} files for ${token.slice(0, 12)}…`)
     res.json({ success: true })
   } catch (e) {
     console.error('[SESSION PUT]', e?.message || e)
