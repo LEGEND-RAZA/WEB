@@ -20,44 +20,14 @@ const logger = P({ level: 'silent' })
 const jobs = new Map()
 const hits = new Map()
 
-const JOB_TTL = 10 * 60 * 1000
-const RATE_WINDOW = 10 * 60 * 1000
-
 app.set('trust proxy', 1)
-app.disable('x-powered-by')
-
-// Optional gzip/brotli-less compression (npm i compression). Skipped safely if missing.
-try {
-  const { default: compression } = await import('compression')
-  app.use(compression())
-} catch {
-  console.log('[i] "compression" not installed - run: npm i compression (faster page loads)')
-}
-
 const jsonSmall = express.json({ limit: '100kb' })
 const jsonBig = express.json({ limit: '25mb' })
 app.use((req, res, next) =>
   (req.method === 'PUT' && req.path.startsWith('/api/session/') ? jsonBig : jsonSmall)(req, res, next)
 )
+app.use(express.static(path.join(ROOT, 'public')))
 
-// Static files: HTML/JS/CSS always revalidate (so a stale bundle never breaks pairing),
-// fonts cached hard. Other assets get a moderate 7d cache.
-app.use(express.static(path.join(ROOT, 'public'), {
-  etag: true,
-  maxAge: '7d',
-  setHeaders(res, file) {
-    if (/\.(html|js|css)$/i.test(file)) {
-      res.setHeader('Cache-Control', 'no-cache')
-    } else if (/\.(woff2?|ttf|otf)$/i.test(file)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-    }
-  }
-}))
-
-// Do NOT wipe the sessions folder on startup.
-// Jobs live only in memory, so leftover folders are harmless orphans — but removing
-// them on boot can rip files out from under a socket that is mid-handshake during
-// a Heroku restart, which is what causes WhatsApp to say "something went wrong".
 await fs.mkdir(SESSIONS, { recursive: true })
 
 const makeId = () => crypto.randomBytes(16).toString('hex')
@@ -65,19 +35,14 @@ const makeToken = () => 'RAZA_' + crypto.randomBytes(18).toString('base64url')
 const cleanNumber = v => String(v || '').replace(/\D/g, '')
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
-function disposeSocket(job) {
-  const sock = job.sock
-  if (!sock) return
-  try { sock.ev.removeAllListeners('connection.update') } catch {}
-  try { sock.ev.removeAllListeners('creds.update') } catch {}
-  try { sock.ws?.close() } catch {}
-  try { sock.end(undefined) } catch {}
-}
-
 async function cleanupJob(job) {
-  if (job.cleaned) return
   job.cleaned = true
-  disposeSocket(job)
+  if (job.sock) {
+    try { job.sock.ev.removeAllListeners('connection.update') } catch {}
+    try { job.sock.ev.removeAllListeners('creds.update') } catch {}
+    try { job.sock.ws?.close() } catch {}
+    try { job.sock.end(undefined) } catch {}
+  }
   // Give in-flight key writes a moment to finish before the folder disappears.
   await delay(2000)
   await fs.rm(job.dir, { recursive: true, force: true }).catch(() => {})
@@ -119,13 +84,6 @@ async function requestPairingCode(job) {
 async function connectJob(job) {
   if (job.cleaned) return
 
-  // NOTE: We deliberately do NOT call disposeSocket(job) here.
-  // Baileys fires transient 'close' events during pairing; if we kill the old
-  // socket's ws at that moment the pairing code already issued on it stops being
-  // redeemable and WhatsApp shows "something went wrong". The previous socket is
-  // left to close on its own (it always does), and the listener guard below keeps
-  // any late events from the old socket from acting on this job.
-
   const { state, saveCreds } = await useMultiFileAuthState(job.dir)
   job.state = state
 
@@ -141,16 +99,12 @@ async function connectJob(job) {
     defaultQueryTimeoutMs: 60000,
     keepAliveIntervalMs: 30000
   })
-  const mySock = sock
   job.sock = sock
 
   sock.ev.on('creds.update', saveCreds)
 
   sock.ev.on('connection.update', async update => {
     if (job.cleaned) return
-    // Ignore stray events from an older socket that has since been replaced.
-    if (job.sock !== mySock) return
-
     const { connection, lastDisconnect, qr } = update
 
     if (!state.creds.registered && (connection === 'connecting' || qr)) {
@@ -160,10 +114,6 @@ async function connectJob(job) {
     if (connection === 'connecting' && !job.code) job.status = 'connecting'
 
     if (connection === 'open') {
-      // Guard: WhatsApp can fire 'open' more than once; only generate the session one time.
-      if (job.finishing) return
-      job.finishing = true
-
       job.status = 'connected'
       job.error = ''
       try {
@@ -192,22 +142,15 @@ async function connectJob(job) {
         await saveCreds()
         await putSession({ token, number: job.number, ...(await snapshot(job.dir)) })
 
-        // 4. Mark ready FIRST. The session is already in MySQL, so pairing must never
-        //    be blocked or broken by deployment — that is a completely separate step.
+        // 4. Mark ready FIRST — session is already in MySQL, so pairing is never
+        //    blocked by deploy. Deploy runs fire-and-forget right after.
         job.status = 'ready'
         console.log(`[SESSION] stored in MySQL for ...${job.number.slice(-4)}`)
 
-        // 5. Auto-deploy is fire-and-forget. Never awaited, never breaks pairing.
         if (job.wantDeploy && process.env.HEROKU_API_KEY) {
           startDeploy(token)
-            .then(d => {
-              job.deployId = d.id
-              console.log(`[DEPLOY] auto-deploy started for ...${job.number.slice(-4)}`)
-            })
-            .catch(e => {
-              job.deployError = e?.message || 'Could not start deployment'
-              console.error('[DEPLOY] auto-deploy failed to start:', e?.message || e)
-            })
+            .then(d => { job.deployId = d.id; console.log(`[DEPLOY] started for ...${job.number.slice(-4)}`) })
+            .catch(e => { job.deployError = e?.message || 'Could not start deployment'; console.error('[DEPLOY] start failed:', e?.message || e) })
         }
 
         setTimeout(() => cleanupJob(job), 5000)
@@ -228,9 +171,8 @@ async function connectJob(job) {
         job.error = 'WhatsApp logged out'
         return cleanupJob(job)
       }
-      if (['ready', 'connected', 'error'].includes(job.status) || job.cleaned || job.reconnecting || job.finishing) return
+      if (['ready', 'connected', 'error'].includes(job.status) || job.cleaned || job.reconnecting) return
 
-      // Normal after pairing: WhatsApp forces a restart (515) and we reconnect with the saved creds.
       job.reconnecting = true
       setTimeout(async () => {
         job.reconnecting = false
@@ -249,25 +191,13 @@ async function connectJob(job) {
 
 app.get('/health', (req, res) => res.json({ success: true, status: 'online' }))
 
-app.get('/', (req, res) => {
-  res.set('Cache-Control', 'no-cache')
-  res.sendFile(path.join(ROOT, 'public', 'index.html'))
-})
+app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')))
 
 app.post('/api/pair', async (req, res) => {
   try {
     const number = cleanNumber(req.body?.number)
     if (number.length < 7 || number.length > 15) {
       return res.status(400).json({ success: false, error: 'Invalid WhatsApp number' })
-    }
-
-    // Per-IP rate limit (checked before touching the database)
-    const now = Date.now()
-    const list = (hits.get(req.ip) || []).filter(t => now - t < RATE_WINDOW)
-    list.push(now)
-    hits.set(req.ip, list)
-    if (list.length > 8) {
-      return res.status(429).json({ success: false, error: 'Too many attempts. Try again in a few minutes.' })
     }
 
     try {
@@ -277,9 +207,18 @@ app.post('/api/pair', async (req, res) => {
       return res.status(503).json({ success: false, error: 'Session storage is unavailable. Try again shortly.' })
     }
 
+    // Per-IP rate limit
+    const now = Date.now()
+    const list = (hits.get(req.ip) || []).filter(t => now - t < 10 * 60 * 1000)
+    list.push(now)
+    hits.set(req.ip, list)
+    if (list.length > 8) {
+      return res.status(429).json({ success: false, error: 'Too many attempts. Try again in a few minutes.' })
+    }
+
     // Reuse only if the SAME click fired two requests within 2 seconds (double-tap debounce)
     const veryRecent = [...jobs.values()].find(j =>
-      j.number === number && !j.cleaned && Date.now() - j.createdAt < 2000
+      j.number === number && Date.now() - j.createdAt < 2000
     )
     if (veryRecent) {
       return res.json({ success: true, id: veryRecent.id, code: veryRecent.code, status: veryRecent.status })
@@ -311,8 +250,7 @@ app.post('/api/pair', async (req, res) => {
       sendError: '',
       codeRequesting: false,
       reconnecting: false,
-      finishing: false,
-      // Auto-deploy is on by default; set AUTO_DEPLOY=false or send { deploy: false } to get a session only.
+      // Auto-deploy on by default; AUTO_DEPLOY=false or { deploy: false } to disable.
       wantDeploy: process.env.AUTO_DEPLOY !== 'false' && req.body?.deploy !== false,
       deployId: '',
       deployError: '',
@@ -355,7 +293,6 @@ app.get('/api/status/:id', (req, res) => {
     sent: job.sent,
     error: job.error,
     sendError: job.sendError,
-    // Live deploy progress so the page can show one smooth flow: pair -> deploying -> live
     deploy: job.deployId ? { id: job.deployId, ...getDeployStatus(job.deployId) } : null,
     deployError: job.deployError
   })
@@ -399,13 +336,6 @@ app.put('/api/session/:token', async (req, res) => {
     return res.status(400).json({ success: false, error: 'creds.json missing from payload' })
   }
 
-  /*
-   * Filename validation.
-   * Baileys 7.x writes group sender-key files with '@' in the name, e.g.
-   *   sender-key-120363429299945923@g.us--923201822076@s.whatsapp.net--ABC123.json
-   * Allowed characters: A-Z a-z 0-9 . _ @ -
-   * Plus explicit path-traversal guards (no '..', '/', '\', leading '.').
-   */
   const NAME_RE = /^[A-Za-z0-9._@-]{1,200}$/
 
   const badName = names.find(n =>
@@ -420,14 +350,13 @@ app.put('/api/session/:token', async (req, res) => {
   )
 
   if (badName !== undefined) {
-    console.error('[SESSION PUT] rejected - invalid filename:', JSON.stringify(badName))
+    console.error('[SESSION PUT] rejected — invalid filename:', JSON.stringify(badName))
     return res.status(400).json({
       success: false,
       error: 'Invalid filename in session payload'
     })
   }
 
-  // creds.json must decode to JSON with a real me.id - proves the session is paired.
   let paired = false
   try {
     const decoded = Buffer.from(files['creds.json'], 'base64').toString('utf8')
@@ -447,7 +376,7 @@ app.put('/api/session/:token', async (req, res) => {
     if (!(await updateSession(token, files))) {
       return res.status(404).json({ success: false, error: 'Session not found' })
     }
-    console.log(`[SESSION PUT] synced ${names.length} files for ${token.slice(0, 12)}...`)
+    console.log(`[SESSION PUT] synced ${names.length} files for ${token.slice(0, 12)}…`)
     res.json({ success: true })
   } catch (e) {
     console.error('[SESSION PUT]', e?.message || e)
@@ -458,49 +387,20 @@ app.put('/api/session/:token', async (req, res) => {
 mountDeploy(app)
 
 setInterval(async () => {
-  const now = Date.now()
-
-  // Expire old jobs (no more sequential 2s waits on jobs that are already cleaned).
+  const jobExpiry = Date.now() - 10 * 60 * 1000
   for (const [id, job] of jobs) {
-    if (now - job.createdAt > JOB_TTL) {
+    if (job.createdAt < jobExpiry) {
+      await cleanupJob(job)
       jobs.delete(id)
-      if (!job.cleaned) cleanupJob(job).catch(() => {})
     }
   }
-
-  // Prune the rate-limit map so it can't grow forever.
-  for (const [ip, list] of hits) {
-    const fresh = list.filter(t => now - t < RATE_WINDOW)
-    if (fresh.length) hits.set(ip, fresh)
-    else hits.delete(ip)
-  }
-
-  // Housekeeping: remove orphan session folders that no active job owns.
-  try {
-    const active = new Set([...jobs.values()].map(j => path.basename(j.dir)))
-    for (const name of await fs.readdir(SESSIONS)) {
-      if (active.has(name)) continue
-      const stat = await fs.stat(path.join(SESSIONS, name)).catch(() => null)
-      if (stat && now - stat.mtimeMs > JOB_TTL) {
-        await fs.rm(path.join(SESSIONS, name), { recursive: true, force: true }).catch(() => {})
-      }
-    }
-  } catch {}
-
   const days = Number(process.env.SESSION_TTL_DAYS)
   if (days > 0) await pruneSessions(days).catch(() => {})
 }, 60 * 1000).unref()
 
-const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`RAZA PAIR running on port ${PORT}`)
   ensureDb()
     .then(() => console.log('[+] MySQL session storage ready.'))
     .catch(e => console.error('[DB]', e?.message || e))
-})
-
-// Heroku sends SIGTERM on restart/deploy: stop accepting requests and exit cleanly.
-process.on('SIGTERM', () => {
-  console.log('[PROCESS] SIGTERM received, shutting down')
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(0), 8000).unref()
 })
