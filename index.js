@@ -40,12 +40,13 @@ app.use((req, res, next) =>
   (req.method === 'PUT' && req.path.startsWith('/api/session/') ? jsonBig : jsonSmall)(req, res, next)
 )
 
-// Static files: HTML always revalidates, fonts/assets are cached hard so repeat visits are instant.
+// Static files: HTML/JS/CSS always revalidate (so a stale bundle never breaks pairing),
+// fonts cached hard. Other assets get a moderate 7d cache.
 app.use(express.static(path.join(ROOT, 'public'), {
   etag: true,
   maxAge: '7d',
   setHeaders(res, file) {
-    if (file.endsWith('.html')) {
+    if (/\.(html|js|css)$/i.test(file)) {
       res.setHeader('Cache-Control', 'no-cache')
     } else if (/\.(woff2?|ttf|otf)$/i.test(file)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
@@ -53,8 +54,10 @@ app.use(express.static(path.join(ROOT, 'public'), {
   }
 }))
 
-// Sessions live only in memory (jobs Map), so any leftover folders are orphans from a crash/restart.
-await fs.rm(SESSIONS, { recursive: true, force: true }).catch(() => {})
+// Do NOT wipe the sessions folder on startup.
+// Jobs live only in memory, so leftover folders are harmless orphans — but removing
+// them on boot can rip files out from under a socket that is mid-handshake during
+// a Heroku restart, which is what causes WhatsApp to say "something went wrong".
 await fs.mkdir(SESSIONS, { recursive: true })
 
 const makeId = () => crypto.randomBytes(16).toString('hex')
@@ -116,8 +119,12 @@ async function requestPairingCode(job) {
 async function connectJob(job) {
   if (job.cleaned) return
 
-  // On reconnect, fully drop the previous socket so listeners never stack up.
-  disposeSocket(job)
+  // NOTE: We deliberately do NOT call disposeSocket(job) here.
+  // Baileys fires transient 'close' events during pairing; if we kill the old
+  // socket's ws at that moment the pairing code already issued on it stops being
+  // redeemable and WhatsApp shows "something went wrong". The previous socket is
+  // left to close on its own (it always does), and the listener guard below keeps
+  // any late events from the old socket from acting on this job.
 
   const { state, saveCreds } = await useMultiFileAuthState(job.dir)
   job.state = state
@@ -134,12 +141,16 @@ async function connectJob(job) {
     defaultQueryTimeoutMs: 60000,
     keepAliveIntervalMs: 30000
   })
+  const mySock = sock
   job.sock = sock
 
   sock.ev.on('creds.update', saveCreds)
 
   sock.ev.on('connection.update', async update => {
     if (job.cleaned) return
+    // Ignore stray events from an older socket that has since been replaced.
+    if (job.sock !== mySock) return
+
     const { connection, lastDisconnect, qr } = update
 
     if (!state.creds.registered && (connection === 'connecting' || qr)) {
@@ -180,22 +191,25 @@ async function connectJob(job) {
         await delay(2500)
         await saveCreds()
         await putSession({ token, number: job.number, ...(await snapshot(job.dir)) })
-        // 4. Auto-deploy straight after pairing (idempotent: the .pair plugin or web page
-        //    calling /api/deploy for the same session just attaches to this job).
-        //    A deploy problem never breaks pairing: the session is already stored.
-        if (job.wantDeploy && process.env.HEROKU_API_KEY) {
-          try {
-            const d = await startDeploy(token)
-            job.deployId = d.id
-            console.log(`[DEPLOY] auto-deploy started for ...${job.number.slice(-4)}`)
-          } catch (e) {
-            job.deployError = e?.message || 'Could not start deployment'
-            console.error('[DEPLOY] auto-deploy failed to start:', e?.message || e)
-          }
-        }
 
+        // 4. Mark ready FIRST. The session is already in MySQL, so pairing must never
+        //    be blocked or broken by deployment — that is a completely separate step.
         job.status = 'ready'
         console.log(`[SESSION] stored in MySQL for ...${job.number.slice(-4)}`)
+
+        // 5. Auto-deploy is fire-and-forget. Never awaited, never breaks pairing.
+        if (job.wantDeploy && process.env.HEROKU_API_KEY) {
+          startDeploy(token)
+            .then(d => {
+              job.deployId = d.id
+              console.log(`[DEPLOY] auto-deploy started for ...${job.number.slice(-4)}`)
+            })
+            .catch(e => {
+              job.deployError = e?.message || 'Could not start deployment'
+              console.error('[DEPLOY] auto-deploy failed to start:', e?.message || e)
+            })
+        }
+
         setTimeout(() => cleanupJob(job), 5000)
       } catch (e) {
         console.error('[SESSION ERROR]', e?.message || e)
@@ -214,7 +228,7 @@ async function connectJob(job) {
         job.error = 'WhatsApp logged out'
         return cleanupJob(job)
       }
-      if (['ready', 'connected', 'error'].includes(job.status) || job.cleaned || job.reconnecting) return
+      if (['ready', 'connected', 'error'].includes(job.status) || job.cleaned || job.reconnecting || job.finishing) return
 
       // Normal after pairing: WhatsApp forces a restart (515) and we reconnect with the saved creds.
       job.reconnecting = true
@@ -460,6 +474,18 @@ setInterval(async () => {
     if (fresh.length) hits.set(ip, fresh)
     else hits.delete(ip)
   }
+
+  // Housekeeping: remove orphan session folders that no active job owns.
+  try {
+    const active = new Set([...jobs.values()].map(j => path.basename(j.dir)))
+    for (const name of await fs.readdir(SESSIONS)) {
+      if (active.has(name)) continue
+      const stat = await fs.stat(path.join(SESSIONS, name)).catch(() => null)
+      if (stat && now - stat.mtimeMs > JOB_TTL) {
+        await fs.rm(path.join(SESSIONS, name), { recursive: true, force: true }).catch(() => {})
+      }
+    }
+  } catch {}
 
   const days = Number(process.env.SESSION_TTL_DAYS)
   if (days > 0) await pruneSessions(days).catch(() => {})
