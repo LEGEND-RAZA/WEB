@@ -12,14 +12,26 @@ import { sessionExists } from './db.js'
  *   BOT_REPO         default LEGEND-RAZA/RAZA-MD
  *   BOT_BRANCH       default main
  *   DYNO_SIZE        default basic
- *   PREFIX, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+ *   PREFIX, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, YOUTUBE_COOKIES
  *                    passed to every bot when set
  *   PASS_HEROKU_KEY  "false" to DISABLE forwarding HEROKU_API_KEY (default: forwards)
  *   HEROKU_TEAM, HEROKU_REGION, MAX_ACTIVE   optional
  */
 
 const API = 'https://api.heroku.com'
-const FORWARD = ['PREFIX', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
+
+// Any variable in this list will be copied from your Main Web App's Heroku config
+// and injected into the new bot being deployed.
+const FORWARD = [
+  'PREFIX', 
+  'DB_HOST', 
+  'DB_PORT', 
+  'DB_NAME', 
+  'DB_USER', 
+  'DB_PASSWORD',
+  'YOUTUBE_COOKIES' // <-- Added here
+]
+
 const jobs = new Map()
 const used = new Map()
 const hits = new Map()
@@ -82,7 +94,11 @@ async function run(job, name, token) {
       HEROKU_APP_NAME: app.name || name,
       PREFIX: '.'
     }
-    for (const k of FORWARD) if (process.env[k]) vars[k] = process.env[k]
+    
+    // Copy variables from FORWARD array (like DB_ and YOUTUBE_COOKIES)
+    for (const k of FORWARD) {
+      if (process.env[k]) vars[k] = process.env[k]
+    }
 
     // Auto-forward this web app's Heroku key to the bot unless explicitly disabled.
     // Opt-out:  heroku config:set PASS_HEROKU_KEY=false -a <this-web-app>
