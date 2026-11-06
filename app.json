@@ -1,65 +1,70 @@
 {
-"name": "RAZA MD Pair and Deploy",
-"description": "Pairing site and one-tap Heroku deployer for RAZA MD.",
-"stack": "heroku-24",
-"buildpacks": [
-{
-"url": "heroku/nodejs"
-}
-],
-"env": {
-"HEROKU_API_KEY": {
-"description": "Heroku API key that owns the bot apps.",
-"required": true
-},
-"PAIR_SERVER_URL": {
-"description": "This site's public URL. Each bot fetches its session from it.",
-"required": true
-},
-"BOT_REPO": {
-"description": "GitHub repository of the bot.",
-"value": "LEGEND-RAZA/RAZA-MD",
-"required": false
-},
-"BOT_BRANCH": {
-"description": "Branch to build.",
-"value": "main",
-"required": false
-},
-"DYNO_SIZE": {
-"description": "Worker dyno size.",
-"value": "basic",
-"required": false
-},
-"PREFIX": {
-"description": "Command prefix passed to each bot.",
-"value": ".",
-"required": false
-},
-"DB_HOST": {
-"description": "Aiven MySQL database host.",
-"value": "mysql-5075843-innoxcentraza51-73a9.h.aivencloud.com",
-"required": true
-},
-"DB_PORT": {
-"description": "Aiven MySQL database port.",
-"value": "26508",
-"required": true
-},
-"DB_NAME": {
-"description": "Aiven MySQL database name.",
-"value": "defaultdb",
-"required": true
-},
-"DB_USER": {
-"description": "Aiven MySQL database username.",
-"value": "avnadmin",
-"required": true
-},
-"DB_PASSWORD": {
-"description": "Aiven MySQL database password. Replace with your newly rotated password.",
-"value": "AVNS_qTijgdeJAe2yFVquIC9",
-"required": true
-}
-}
+  "name": "RAZA MD Pair and Deploy",
+  "description": "Pairing site and one-tap Heroku deployer for RAZA MD.",
+  "stack": "heroku-24",
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "env": {
+    "HEROKU_API_KEY": {
+      "description": "Heroku API key that owns the bot apps.",
+      "required": true
+    },
+    "PAIR_SERVER_URL": {
+      "description": "This site's public URL. Each bot fetches its session from it.",
+      "required": true
+    },
+    "BOT_REPO": {
+      "description": "GitHub repository of the bot.",
+      "value": "LEGEND-RAZA/RAZA-MD",
+      "required": false
+    },
+    "BOT_BRANCH": {
+      "description": "Branch to build.",
+      "value": "main",
+      "required": false
+    },
+    "DYNO_SIZE": {
+      "description": "Worker dyno size.",
+      "value": "basic",
+      "required": false
+    },
+    "PREFIX": {
+      "description": "Command prefix passed to each bot.",
+      "value": ".",
+      "required": false
+    },
+    "DB_HOST": {
+      "description": "Aiven MySQL database host.",
+      "value": "mysql-5075843-innoxcentraza51-73a9.h.aivencloud.com",
+      "required": true
+    },
+    "DB_PORT": {
+      "description": "Aiven MySQL database port.",
+      "value": "26508",
+      "required": true
+    },
+    "DB_NAME": {
+      "description": "Aiven MySQL database name.",
+      "value": "defaultdb",
+      "required": true
+    },
+    "DB_USER": {
+      "description": "Aiven MySQL database username.",
+      "value": "avnadmin",
+      "required": true
+    },
+    "DB_PASSWORD": {
+      "description": "Aiven MySQL database password. Replace with your newly rotated password.",
+      "value": "AVNS_qTijgdeJAe2yFVquIC9",
+      "required": true
+    },
+    "YOUTUBE_COOKIES": {
+      "description": "YouTube cookies forwarded to the deployed bots.",
+      "value": "VISITOR_PRIVACY_METADATA=CgJQSxIEGgAgVQ%3D%3D;__Secure-3PSID=g.a000EQkQjFKUdw3RX5tOmL4hcCGNCQp4V_jYLfJgjfF3rccm54xKKURWaE3cQeww0_Ztr4p9dgACgYKAbQSARUSFQHGX2MidGAXAHYWVmdQpYB3rBfZZhoVAUF8yKqm1dtbn-DOc7FaDhqPLDZ70076;SIDCC=APD_SKFezNTcGd2ov0HRbNCqdf51kSVdFYnmz6WLM8QneB7fibprGtCR1iVj0ouNKDoQDggA;YSC=r__Kbt1if6w;SID=g.a000EQkQjFKUdw3RX5tOmL4hcCGNCQp4V_jYLfJgjfF3rccm54xKDTI8BgtPO9ZtwGhwbVnlLwACgYKAUoSARUSFQHGX2MiEhUZUPl3IOnwHJD9aAhi3RoVAUF8yKpGWB8qFv-VYhIjZYUHwtFM0076;__Secure-1PSIDTS=sidts-CjQBnJZzagw47DTzA-o7-PdhfB8iAd_oTOejAXbUL12SrUTTvsW9Nm91ShEDdEwuroMWuHjuEAA;SAPISID=locNdjoc20cfhRZw/ABFBbSEqL82fLaIuc;__Secure-1PSIDCC=APD_SKHCyJRlr7XzefidZaAyh0GqHZEEKLiCIkcNT41lesfEFoJQnd_gq6mcqItFzOjnVlm9;SSID=AMZE8Asv05lC8XNR0;__Secure-1PAPISID=locNdjoc20cfhRZw/ABFBbSEqL82fLaIuc;__Secure-1PSID=g.a000EQkQjFKUdw3RX5tOmL4hcCGNCQp4V_jYLfJgjfF3rccm54xKJaPRl37iO5XKNKS5aq2CBgACgYKAc8SARUSFQHGX2MiHdWppWXDTnPXZxsrEd8bpBoVAUF8yKq_HSf1DFM93vZEJbMkzFE20076;__Secure-3PAPISID=locNdjoc20cfhRZw/ABFBbSEqL82fLaIuc;__Secure-3PSIDCC=APD_SKE7m_71ZoTzUEuK4TLC_pqlvum0lIkJjaUQu9Vw446hwDYnBu6prxgsOzp1H677HAUTFQ;__Secure-3PSIDTS=sidts-CjQBnJZzagw47DTzA-o7-PdhfB8iAd_oTOejAXbUL12SrUTTvsW9Nm91ShEDdEwuroMWuHjuEAA;__Secure-YNID=CuwBCAUSngEBDB6PDB3lPVN7UKtJMdiGACuJ454KtTh367d2rJt_YAM6RvZEQq-kfjmzVi-KGupT_wG5gyBO67jQBr505YYTKKjemRoo0z_LDGzygrmBdqfMUUAAL9RXK3FwxB6djpJR3_DHEpuxUOu68XD4XQeXlzVF7AixSM0l3QEdP_JflB9T1ktEsWbu42y8-NN5bweE7IGc17636V0kozBFCygFMkUBHFj1arfR-1fLdl6s1r1-78oFXWIPLab4RZaGZOL0daTaO18WFE1GpHDEZR5JUgupER9y2PJ73EeuGZWe55PYcvTtSAo;APISID=m1YXHhnYLTKFpWI9/ABlHbXMfJMSxyGGRr;HSID=AjJD1kLgUI9ZMYyy_;LOGIN_INFO=AFmmF2swRQIhAKvL4reMrbo_n3M0qzmAL9X7kmWSQlGNf1UGHSGlIkjKAiA0yvM0shjtIXaMknwupsH4JCVXBs7yFyQa48-gJ3nGjQ:QUQ3MjNmel8ySTdrc1JsZWkwbGd6d1NQX3ROcVY4RmtDdGJJZlpqUFhUWFA0TzZoWG5iRkxaRXZMWF9Sc2lLaV9qeFNqZEhKZnphckotRENBOUFTcmEwS1U5aWRkcFJkdTZLX1RGUGYwMzF1anZublQ3b18xaHpNbmpOTW1waHVNZEtobTZRSFdOQlZrQzFLVU5KYnRaWU1MYUdmcDcwSnJn;PREF=f6=40000000&tz=Asia.Karachi;VISITOR_INFO1_LIVE=pFk6x4GNOks",
+      "required": false
+    }
+  }
 }
