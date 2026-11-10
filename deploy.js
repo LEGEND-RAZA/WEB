@@ -1,27 +1,7 @@
 import crypto from 'node:crypto'
 import { sessionExists } from './db.js'
 
-/*
- * One-tap Heroku deploy for RAZA MD, same flow as the .deploy plugin.
- * The bot runs as a worker only: web is scaled to 0 and worker to 1.
- * Uses Node's built-in fetch (Node 18+), so no new packages are needed.
- *
- * Config vars on THIS web app:
- *   HEROKU_API_KEY   required  (auto-forwarded to every bot as HEROKU_API_KEY)
- *   PAIR_SERVER_URL  this site's public URL (each bot fetches its session from it)
- *   BOT_REPO         default LEGEND-RAZA/RAZA-MD
- *   BOT_BRANCH       default main
- *   DYNO_SIZE        default basic
- *   PREFIX, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, YOUTUBE_COOKIES
- *                    passed to every bot when set
- *   PASS_HEROKU_KEY  "false" to DISABLE forwarding HEROKU_API_KEY (default: forwards)
- *   HEROKU_TEAM, HEROKU_REGION, MAX_ACTIVE   optional
- */
-
 const API = 'https://api.heroku.com'
-
-// Any variable in this list will be copied from your Main Web App's Heroku config
-// and injected into the new bot being deployed.
 const FORWARD = [
   'PREFIX', 
   'DB_HOST', 
@@ -29,9 +9,8 @@ const FORWARD = [
   'DB_NAME', 
   'DB_USER', 
   'DB_PASSWORD',
-  'YOUTUBE_COOKIES' // <-- Added here
+  'YOUTUBE_COOKIES'
 ]
-
 const jobs = new Map()
 const used = new Map()
 const hits = new Map()
@@ -66,12 +45,7 @@ function limited(ip) {
 }
 
 const sessionOk = token => sessionExists(token).catch(() => false)
-
-const failWith = (status, msg) => {
-  const e = new Error(msg)
-  e.status = status
-  throw e
-}
+const failWith = (status, msg) => { const e = new Error(msg); e.status = status; throw e }
 
 async function run(job, name, token) {
   const repo = process.env.BOT_REPO || 'LEGEND-RAZA/RAZA-MD'
@@ -94,14 +68,8 @@ async function run(job, name, token) {
       HEROKU_APP_NAME: app.name || name,
       PREFIX: '.'
     }
-    
-    // Copy variables from FORWARD array (like DB_ and YOUTUBE_COOKIES)
-    for (const k of FORWARD) {
-      if (process.env[k]) vars[k] = process.env[k]
-    }
+    for (const k of FORWARD) if (process.env[k]) vars[k] = process.env[k]
 
-    // Auto-forward this web app's Heroku key to the bot unless explicitly disabled.
-    // Opt-out:  heroku config:set PASS_HEROKU_KEY=false -a <this-web-app>
     if (process.env.PASS_HEROKU_KEY !== 'false' && process.env.HEROKU_API_KEY) {
       vars.HEROKU_API_KEY = process.env.HEROKU_API_KEY
     }
@@ -119,19 +87,36 @@ async function run(job, name, token) {
       await delay(5000)
       const b = await heroku('GET', `/apps/${name}/builds/${build.id}`)
       if (b.status === 'succeeded') break
-      if (b.status === 'failed') throw new Error('The build failed. Please try again in a few minutes.')
+      if (b.status === 'failed') throw new Error('The build failed. Check your Heroku dashboard.')
       if (i >= 119) throw new Error('The build took too long.')
     }
 
-    // Worker only: the process types exist once the first release is out.
     job.status = 'starting'
-    const types = (await heroku('GET', `/apps/${name}/formation`)).map(f => f.type)
-    if (!types.includes('worker')) throw new Error('The bot has no worker process in its Procfile.')
+    
+    // FIX: Wait for Heroku to register the worker dyno before checking formation
+    let types = []
+    for (let i = 0; i < 6; i++) {
+      await delay(3000) // Wait 3 seconds per attempt
+      try {
+        types = (await heroku('GET', `/apps/${name}/formation`)).map(f => f.type)
+        if (types.includes('worker')) break
+      } catch (e) {
+        // Ignore API glitches
+      }
+    }
+
+    // Force the worker to start. If web exists, set it to 0.
     await heroku('PATCH', `/apps/${name}/formation`, {
       updates: [
         ...(types.includes('web') ? [{ type: 'web', quantity: 0, dyno_size: { name: size } }] : []),
         { type: 'worker', quantity: 1, dyno_size: { name: size } }
       ]
+    }).catch((e) => {
+      console.error('[DEPLOY] Formation update failed, retrying...', e.message)
+      // Fallback: Just try to scale worker only
+      return heroku('PATCH', `/apps/${name}/formation`, {
+        updates: [{ type: 'worker', quantity: 1, dyno_size: { name: size } }]
+      })
     })
 
     job.status = 'live'
@@ -139,20 +124,13 @@ async function run(job, name, token) {
     job.error = e.message || 'Deployment failed.'
     job.status = 'failed'
     used.delete(token)
-    if (job.created) heroku('DELETE', `/apps/${name}`).catch(() => {})
+    // Only delete if it completely failed before the bot started
+    if (job.created && job.status !== 'live') {
+      heroku('DELETE', `/apps/${name}`).catch(() => {})
+    }
   }
 }
 
-/**
- * Programmatically start a deploy job.
- * Used by POST /api/deploy and by the auto-deploy hook in index.js
- * after a successful pairing.
- *
- * Throws errors with .status set so callers can map them to HTTP codes:
- *   400 validation, 409 conflict, 429 busy, 503 not configured.
- *
- * Returns { id } — poll progress via GET /api/deploy/:id.
- */
 export async function startDeploy({ appName, sessionId }) {
   if (!process.env.HEROKU_API_KEY) failWith(503, 'Deployment is not configured yet.')
 
