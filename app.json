@@ -58,7 +58,7 @@
     },
     "DB_PASSWORD": {
       "description": "Aiven MySQL database password. Replace with your newly rotated password.",
-      "value": "AVNS_qTijgdeJAe2yFVquIC9",
+      "value": "AVNS_rbT-nrEagWymCXaFTHz",
       "required": true
     },
     "YOUTUBE_COOKIES": {
